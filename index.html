@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebGL2 Dual-Buffer Transform Feedback PBO</title>
+    <style>
+      canvas {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebGL2 Dual-Buffer Transform Feedback Pixel Buffer Object</h1>
+    <p>
+      This example showcases a technique similar to compute shading using
+      dual-buffer transform feedback and a Pixel Buffer Object (PBO) to simulate
+      compute shader effects in environments where they are not available.
+      <br />
+      Every second, a 'compute' operation processes vertex data through
+      transform feedback in a ping-pong manner between two buffers. The results,
+      stored in an array buffer, are then transferred to a texture using a PBO
+      (gl.PIXEL_UNPACK_BUFFER), which keeps the processed data entirely on the
+      GPU for enhanced performance.
+    </p>
+    <p>
+      Shaders can access the updated data in the texture through a texture
+      uniform, allowing for efficient data manipulation and comparison using
+      texelFetch. This approach minimizes CPU-GPU data transfer, optimizing
+      performance for GPU-based computations like dynamic sorting or
+      simulations.
+    </p>
+    <p>
+      The compute operation in this example incrementally updates vertex data
+      values, transferring them to a texture using a GPU-to-GPU Pixel Buffer
+      Object (PBO) transfer. This method avoids CPU involvement, improving
+      performance. For debugging, the texture's contents are read back to the
+      CPU using gl.readPixels.
+    </p>
+    <hr />
+    <code id="debug">Pixel Buffer Object Data:</code>
+    <br />
+    <br />
+    <i>Normalized [0 - 10] [black - red] values of the texture are displayed</i>
+    <canvas id="glcanvas"></canvas>
+    <br />
+    <br />
+    <br />
+
+    <p>Code:</p>
+    <pre
+      style="
+        background-color: #f5f5f5;
+        border: 1px solid #ddd;
+        font-size: 14px;
+        word-break: break-all;
+        word-wrap: break-word;
+        font-family: monospace;
+        color: #333;
+        padding: 10px;
+        line-height: 1.5;
+      ">
+&lt;!-- Path: ./index.js --&gt;
+&lt;script&gt;
+const canvas = document.getElementById('glcanvas');
+const gl = canvas.getContext('webgl2');
+
+
+// Updated vertex shader for transform feedback
+const vsTransform = `#version 300 es
+in vec4 a_data;
+out vec4 o_data;
+
+void main() {
+    o_data = mod(a_data + 1., 10.);
+}`;
+
+// Fragment shader for transform feedback (not used but required)
+const fsTransform = `#version 300 es
+precision highp float;
+void main() {
+}`;
+
+
+// Create shaders and programs
+const transformProgram = createProgram(gl, vsTransform, fsTransform, [
+  'o_data',
+]); // Add the varyings parameter
+
+const dataBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, dataBuffer);
+
+const size = 2;
+const dataArray = new Float32Array(size * 4);
+dataArray
+  .map((_, i) => i)
+  .forEach((v, i) => {
+    dataArray[i] = v;
+  });
+
+const width = size;
+const height = 1;
+
+const datas = new Float32Array(dataArray);
+gl.bufferData(gl.ARRAY_BUFFER, datas, gl.STATIC_DRAW);
+
+const tfDataBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, tfDataBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, datas.byteLength, gl.DYNAMIC_COPY);
+
+// Setup transform feedback
+const tf = gl.createTransformFeedback();
+gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
+gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tfDataBuffer);
+
+// Create and bind texture
+const texture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, texture);
+gl.texImage2D(
+  gl.TEXTURE_2D,
+  0,
+  gl.RGBA32F,
+  width,
+  height,
+  0,
+  gl.RGBA,
+  gl.FLOAT,
+  null
+);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+// Create a framebuffer
+const framebuffer = gl.createFramebuffer();
+gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+// Attach the texture to the framebuffer
+gl.framebufferTexture2D(
+  gl.FRAMEBUFFER,
+  gl.COLOR_ATTACHMENT0,
+  gl.TEXTURE_2D,
+  texture,
+  0
+);
+
+// Check if the framebuffer is complete
+if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+  console.error('Framebuffer is not complete');
+}
+
+const dataLocation = gl.getAttribLocation(transformProgram, 'a_data');
+
+// Buffers for ping-pong
+let readBuffer = dataBuffer;
+let writeBuffer = tfDataBuffer;
+
+function tick() {
+  // Bind the read buffer for input
+  gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
+  gl.enableVertexAttribArray(dataLocation);
+  gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
+
+  // Use the transform program
+  gl.useProgram(transformProgram);
+
+  // Set the write buffer as the transform feedback buffer
+  gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
+  gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, writeBuffer);
+
+  // Perform transform feedback
+  gl.enable(gl.RASTERIZER_DISCARD);
+  gl.beginTransformFeedback(gl.POINTS);
+  gl.drawArrays(gl.POINTS, 0, width); // Adjust the count as needed
+  gl.endTransformFeedback();
+  gl.disable(gl.RASTERIZER_DISCARD);
+
+  // Ping-pong: swap the read and write buffers
+  [readBuffer, writeBuffer] = [writeBuffer, readBuffer];
+
+  debug();
+}
+
+setInterval(tick, 1000);
+
+&lt;/script&gt;
+</pre
+    >
+
+    <br />
+    <br />
+    <br />
+    <p>
+      Author: Renaud Rohlinger <a href="https://x.com/onirenaud">@onirenaud</a>
+    </p>
+    <script src="./index.js"></script>
+  </body>
+</html>
