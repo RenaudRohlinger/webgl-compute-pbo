@@ -15,15 +15,24 @@ if (!ext) {
 class DualAttributeData {
   constructor(buffer, dualBuffer) {
     this.buffers = [buffer, dualBuffer];
+    this.textures = [gl.createTexture(), gl.createTexture()];
     this.activeBufferIndex = 0;
   }
 
-  get bufferGPU() {
+  get buffer() {
     return this.buffers[this.activeBufferIndex];
   }
 
   get transformBuffer() {
     return this.buffers[this.activeBufferIndex ^ 1];
+  }
+
+  get texture() {
+    return this.textures[this.activeBufferIndex];
+  }
+
+  get transformTexture() {
+    return this.textures[this.activeBufferIndex ^ 1];
   }
 
   switchBuffers() {
@@ -141,21 +150,22 @@ gl.bindBufferBase(
 );
 
 // Create and bind texture
-const texture = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, texture);
-gl.texImage2D(
-  gl.TEXTURE_2D,
-  0,
-  gl.RGBA32F,
-  width,
-  height,
-  0,
-  gl.RGBA,
-  gl.FLOAT,
-  null
-);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+for (let i = 0; i < 2; i++) {
+  gl.bindTexture(gl.TEXTURE_2D, attributeData.textures[i]);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA32F,
+    width,
+    height,
+    0,
+    gl.RGBA,
+    gl.FLOAT,
+    null
+  );
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+}
 
 // Create a framebuffer
 const framebuffer = gl.createFramebuffer();
@@ -166,7 +176,7 @@ gl.framebufferTexture2D(
   gl.FRAMEBUFFER,
   gl.COLOR_ATTACHMENT0,
   gl.TEXTURE_2D,
-  texture,
+  attributeData.texture,
   0
 );
 
@@ -176,7 +186,7 @@ const drawDataLocation = gl.getAttribLocation(drawProgram, 'a_data');
 
 function tick() {
   // Bind the read buffer for input
-  gl.bindBuffer(gl.ARRAY_BUFFER, attributeData.bufferGPU);
+  gl.bindBuffer(gl.ARRAY_BUFFER, attributeData.buffer);
   gl.enableVertexAttribArray(dataLocation);
   gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
 
@@ -204,7 +214,9 @@ function tick() {
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
   // Bind PBO and transfer data to texture
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, attributeData.bufferGPU);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, attributeData.buffer);
+  // Add double buffer texture to prevent stalling on read
+  gl.bindTexture(gl.TEXTURE_2D, attributeData.texture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
 
