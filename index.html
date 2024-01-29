@@ -184,11 +184,6 @@ function tick() {
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
-  // Check if the framebuffer is complete
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    console.error('Framebuffer is not complete');
-  }
-
   // Bind PBO and transfer data to texture
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, readBuffer);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
