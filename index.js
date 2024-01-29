@@ -177,6 +177,21 @@ function tick() {
   gl.endTransformFeedback();
   gl.disable(gl.RASTERIZER_DISCARD);
 
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+  // Check if the framebuffer is complete
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    console.error('Framebuffer is not complete');
+  }
+
+  // Bind PBO and transfer data to texture
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, readBuffer);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+
   // Ping-pong: swap the read and write buffers
   [readBuffer, writeBuffer] = [writeBuffer, readBuffer];
 
@@ -225,21 +240,6 @@ function glEnumToString(gl, value) {
 }
 
 function debug() {
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-
-  // Check if the framebuffer is complete
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    console.error('Framebuffer is not complete');
-  }
-
-  // Bind PBO and transfer data to texture
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, readBuffer);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
   // Set the viewport size to match the texture size
