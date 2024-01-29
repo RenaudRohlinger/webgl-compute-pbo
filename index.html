@@ -71,6 +71,25 @@ const canvas = document.getElementById('glcanvas');
 const gl = canvas.getContext('webgl2');
 
 
+class DualAttributeData {
+constructor(buffer, dualBuffer) {
+    this.buffers = [buffer, dualBuffer];
+    this.activeBufferIndex = 0;
+}
+
+get bufferGPU() {
+    return this.buffers[this.activeBufferIndex];
+}
+
+get transformBuffer() {
+    return this.buffers[this.activeBufferIndex ^ 1];
+}
+
+switchBuffers() {
+    this.activeBufferIndex ^= 1;
+}
+}
+
 // Updated vertex shader for transform feedback
 const vsTransform = `#version 300 es
 in vec4 a_data;
@@ -86,51 +105,56 @@ precision highp float;
 void main() {
 }`;
 
-
 // Create shaders and programs
 const transformProgram = createProgram(gl, vsTransform, fsTransform, [
-  'o_data',
+'o_data',
 ]); // Add the varyings parameter
-
-const dataBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, dataBuffer);
 
 const size = 2;
 const dataArray = new Float32Array(size * 4);
 dataArray
-  .map((_, i) => i)
-  .forEach((v, i) => {
+.map((_, i) => i)
+.forEach((v, i) => {
     dataArray[i] = v;
-  });
+});
 
 const width = size;
 const height = 1;
 
 const datas = new Float32Array(dataArray);
+
+const readBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, datas, gl.STATIC_DRAW);
 
-const tfDataBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, tfDataBuffer);
+const writeBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, writeBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, datas.byteLength, gl.DYNAMIC_COPY);
+
+const attributeData = new DualAttributeData(readBuffer, writeBuffer);
 
 // Setup transform feedback
 const tf = gl.createTransformFeedback();
 gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tfDataBuffer);
+gl.bindBufferBase(
+gl.TRANSFORM_FEEDBACK_BUFFER,
+0,
+attributeData.transformBuffer
+);
 
 // Create and bind texture
 const texture = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D, texture);
 gl.texImage2D(
-  gl.TEXTURE_2D,
-  0,
-  gl.RGBA32F,
-  width,
-  height,
-  0,
-  gl.RGBA,
-  gl.FLOAT,
-  null
+gl.TEXTURE_2D,
+0,
+gl.RGBA32F,
+width,
+height,
+0,
+gl.RGBA,
+gl.FLOAT,
+null
 );
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -141,57 +165,54 @@ gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
 // Attach the texture to the framebuffer
 gl.framebufferTexture2D(
-  gl.FRAMEBUFFER,
-  gl.COLOR_ATTACHMENT0,
-  gl.TEXTURE_2D,
-  texture,
-  0
+gl.FRAMEBUFFER,
+gl.COLOR_ATTACHMENT0,
+gl.TEXTURE_2D,
+texture,
+0
 );
-
-// Check if the framebuffer is complete
-if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-  console.error('Framebuffer is not complete');
-}
 
 const dataLocation = gl.getAttribLocation(transformProgram, 'a_data');
 
-// Buffers for ping-pong
-let readBuffer = dataBuffer;
-let writeBuffer = tfDataBuffer;
+const drawDataLocation = gl.getAttribLocation(drawProgram, 'a_data');
 
 function tick() {
-  // Bind the read buffer for input
-  gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
-  gl.enableVertexAttribArray(dataLocation);
-  gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
+// Bind the read buffer for input
+gl.bindBuffer(gl.ARRAY_BUFFER, attributeData.bufferGPU);
+gl.enableVertexAttribArray(dataLocation);
+gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
 
-  // Use the transform program
-  gl.useProgram(transformProgram);
+// Use the transform program
+gl.useProgram(transformProgram);
 
-  // Set the write buffer as the transform feedback buffer
-  gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-  gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, writeBuffer);
+// Set the write buffer as the transform feedback buffer
+gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
+gl.bindBufferBase(
+    gl.TRANSFORM_FEEDBACK_BUFFER,
+    0,
+    attributeData.transformBuffer
+);
 
-  // Perform transform feedback
-  gl.enable(gl.RASTERIZER_DISCARD);
-  gl.beginTransformFeedback(gl.POINTS);
-  gl.drawArrays(gl.POINTS, 0, width); // Adjust the count as needed
-  gl.endTransformFeedback();
-  gl.disable(gl.RASTERIZER_DISCARD);
+// Perform transform feedback
+gl.enable(gl.RASTERIZER_DISCARD);
+gl.beginTransformFeedback(gl.POINTS);
+gl.drawArrays(gl.POINTS, 0, width); // Adjust the count as needed
+gl.endTransformFeedback();
+gl.disable(gl.RASTERIZER_DISCARD);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+gl.bindBuffer(gl.ARRAY_BUFFER, null);
+gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
 
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
-  // Bind PBO and transfer data to texture
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, readBuffer);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+// Bind PBO and transfer data to texture
+gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, attributeData.bufferGPU);
+gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
+gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
 
-  // Ping-pong: swap the read and write buffers
-  [readBuffer, writeBuffer] = [writeBuffer, readBuffer];
-
+// Ping-pong: swap the read and write buffers
+attributeData.switchBuffers();
+debug();
 }
 
 setInterval(tick, 1000);

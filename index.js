@@ -12,6 +12,25 @@ if (!ext) {
   alert('EXT_color_buffer_float is not supported');
 }
 
+class DualAttributeData {
+  constructor(buffer, dualBuffer) {
+    this.buffers = [buffer, dualBuffer];
+    this.activeBufferIndex = 0;
+  }
+
+  get bufferGPU() {
+    return this.buffers[this.activeBufferIndex];
+  }
+
+  get transformBuffer() {
+    return this.buffers[this.activeBufferIndex ^ 1];
+  }
+
+  switchBuffers() {
+    this.activeBufferIndex ^= 1;
+  }
+}
+
 // Updated vertex shader for transform feedback
 const vsTransform = `#version 300 es
 in vec4 a_data;
@@ -82,9 +101,6 @@ const transformProgram = createProgram(gl, vsTransform, fsTransform, [
 ]); // Add the varyings parameter
 const drawProgram = createProgram(gl, vsDraw, fsDraw);
 
-const dataBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, dataBuffer);
-
 const size = 2;
 const dataArray = new Float32Array(size * 4);
 dataArray
@@ -102,17 +118,27 @@ canvas.style['image-rendering'] = 'pixelated';
 canvas.style.display = 'block';
 canvas.style.width = `${window.innerWidth - 14}px`;
 canvas.style.height = `${height * 20}px`;
+
 const datas = new Float32Array(dataArray);
+
+const readBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, datas, gl.STATIC_DRAW);
 
-const tfDataBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, tfDataBuffer);
+const writeBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, writeBuffer);
 gl.bufferData(gl.ARRAY_BUFFER, datas.byteLength, gl.DYNAMIC_COPY);
+
+const attributeData = new DualAttributeData(readBuffer, writeBuffer);
 
 // Setup transform feedback
 const tf = gl.createTransformFeedback();
 gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, tfDataBuffer);
+gl.bindBufferBase(
+  gl.TRANSFORM_FEEDBACK_BUFFER,
+  0,
+  attributeData.transformBuffer
+);
 
 // Create and bind texture
 const texture = gl.createTexture();
@@ -144,22 +170,13 @@ gl.framebufferTexture2D(
   0
 );
 
-// Check if the framebuffer is complete
-if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-  console.error('Framebuffer is not complete');
-}
-
 const dataLocation = gl.getAttribLocation(transformProgram, 'a_data');
 
 const drawDataLocation = gl.getAttribLocation(drawProgram, 'a_data');
 
-// Buffers for ping-pong
-let readBuffer = dataBuffer;
-let writeBuffer = tfDataBuffer;
-
 function tick() {
   // Bind the read buffer for input
-  gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
+  gl.bindBuffer(gl.ARRAY_BUFFER, attributeData.bufferGPU);
   gl.enableVertexAttribArray(dataLocation);
   gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
 
@@ -168,7 +185,11 @@ function tick() {
 
   // Set the write buffer as the transform feedback buffer
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-  gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, writeBuffer);
+  gl.bindBufferBase(
+    gl.TRANSFORM_FEEDBACK_BUFFER,
+    0,
+    attributeData.transformBuffer
+  );
 
   // Perform transform feedback
   gl.enable(gl.RASTERIZER_DISCARD);
@@ -182,19 +203,13 @@ function tick() {
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
-  // Check if the framebuffer is complete
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    console.error('Framebuffer is not complete');
-  }
-
   // Bind PBO and transfer data to texture
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, readBuffer);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, attributeData.bufferGPU);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
 
   // Ping-pong: swap the read and write buffers
-  [readBuffer, writeBuffer] = [writeBuffer, readBuffer];
-
+  attributeData.switchBuffers();
   debug();
 }
 
@@ -227,16 +242,6 @@ function createShader(gl, type, source) {
     console.error('Shader failed to compile:', gl.getShaderInfoLog(shader));
   }
   return shader;
-}
-
-function glEnumToString(gl, value) {
-  const keys = [];
-  for (const key in gl) {
-    if (gl[key] === value) {
-      keys.push(key);
-    }
-  }
-  return keys.length ? keys.join(' | ') : `0x${value.toString(16)}`;
 }
 
 function debug() {
