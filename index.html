@@ -180,7 +180,6 @@ function tick() {
 
   // Bind PBO and transfer data to texture
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, dataBuffer);
-  // Add double buffer texture to prevent stalling on read
   gl.bindTexture(gl.TEXTURE_2D, dataTexture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);

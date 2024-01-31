@@ -148,8 +148,6 @@ function tick() {
   // Use the transform program
   gl.useProgram(transformProgram);
 
-  // gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
   // Set the write buffer as the transform feedback buffer
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
   gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, dataBuffer);
@@ -167,7 +165,6 @@ function tick() {
 
   // Bind PBO and transfer data to texture
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, dataBuffer);
-  // Add double buffer texture to prevent stalling on read
   gl.bindTexture(gl.TEXTURE_2D, dataTexture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
