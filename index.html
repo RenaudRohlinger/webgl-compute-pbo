@@ -23,9 +23,10 @@
       compute shader effects in environments where they are not available.
       <br />
       Every second, a 'compute' operation processes vertex data through
-      transform feedback. The resultstored in an array buffer on the GPU, us
-      then transferred to a texture using a PBO (gl.PIXEL_UNPACK_BUFFER), which
-      keeps the processed data entirely on the GPU for enhanced performance.
+      transform feedback. The result stored in an array buffer on the GPU, is
+      then transferred to a texture using a PBO (gl.PIXEL_UNPACK_BUFFER) and
+      then used as input in the next frame. This setup keeps the processed data
+      entirely on the GPU for enhanced performance.
     </p>
     <p>
       Shaders can access the updated data in the texture through a texture
