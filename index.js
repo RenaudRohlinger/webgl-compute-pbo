@@ -12,41 +12,14 @@ if (!ext) {
   alert('EXT_color_buffer_float is not supported');
 }
 
-class DualAttributeData {
-  constructor(buffer, dualBuffer) {
-    this.buffers = [buffer, dualBuffer];
-    this.textures = [gl.createTexture(), gl.createTexture()];
-    this.activeBufferIndex = 0;
-  }
-
-  get buffer() {
-    return this.buffers[this.activeBufferIndex];
-  }
-
-  get transformBuffer() {
-    return this.buffers[this.activeBufferIndex ^ 1];
-  }
-
-  get texture() {
-    return this.textures[this.activeBufferIndex];
-  }
-
-  get transformTexture() {
-    return this.textures[this.activeBufferIndex ^ 1];
-  }
-
-  switchBuffers() {
-    this.activeBufferIndex ^= 1;
-  }
-}
-
 // Updated vertex shader for transform feedback
-const vsTransform = `#version 300 es
-in vec4 a_data;
+const vsTransform = /* glsl */ `#version 300 es
+uniform highp sampler2D u_data;
 out vec4 o_data;
 
 void main() {
-    o_data = mod(a_data + 1., 10.);
+    vec4 i_data = texelFetch(u_data, ivec2(gl_VertexID, 0), 0);
+    o_data = mod(i_data + 1., 10.);
 }`;
 
 // Fragment shader for transform feedback (not used but required)
@@ -57,13 +30,10 @@ void main() {
 
 // Vertex shader for drawing
 const vsDraw = /* glsl */ `#version 300 es
-in vec4 a_data;
-out vec4 vData;
 out float vID;
 
 
 void main() {
-  vData = a_data;
   vID = float(gl_VertexID);
 
   float x = vID; // x coordinate
@@ -76,11 +46,10 @@ void main() {
 // Updated fragment shader for drawing
 const fsDraw = /* glsl */ `#version 300 es
 precision highp float;
-in vec4 vData;
 out vec4 gColor;
 
 in float vID;
-uniform sampler2D u_texture;
+uniform sampler2D u_data;
 
 void main() {
     int id = int(vID);
@@ -90,9 +59,9 @@ void main() {
     // The next 4 points (ids 4-7) correspond to the second pixel's RGBA components
     float value;
     if (id < 4) {
-        value = texelFetch(u_texture, ivec2(0, 0), 0)[id % 4];
+        value = texelFetch(u_data, ivec2(0, 0), 0)[id % 4];
     } else {
-        value = texelFetch(u_texture, ivec2(1, 0), 0)[id % 4];
+        value = texelFetch(u_data, ivec2(1, 0), 0)[id % 4];
     }
 
     // Normalize the value to the 0-1 range
@@ -130,76 +99,60 @@ canvas.style.height = `${height * 20}px`;
 
 const datas = new Float32Array(dataArray);
 
-const readBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, readBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, datas, gl.STATIC_DRAW);
-
-const writeBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, writeBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, datas.byteLength, gl.DYNAMIC_COPY);
-
-const attributeData = new DualAttributeData(readBuffer, writeBuffer);
-
 // Setup transform feedback
 const tf = gl.createTransformFeedback();
-gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-gl.bindBufferBase(
-  gl.TRANSFORM_FEEDBACK_BUFFER,
-  0,
-  attributeData.transformBuffer
-);
-
-// Create and bind texture
-for (let i = 0; i < 2; i++) {
-  gl.bindTexture(gl.TEXTURE_2D, attributeData.textures[i]);
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA32F,
-    width,
-    height,
-    0,
-    gl.RGBA,
-    gl.FLOAT,
-    null
-  );
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-}
 
 // Create a framebuffer
 const framebuffer = gl.createFramebuffer();
 gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+const dataTexture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+gl.texImage2D(
+  gl.TEXTURE_2D,
+  0,
+  gl.RGBA32F,
+  width,
+  height,
+  0,
+  gl.RGBA,
+  gl.FLOAT,
+  datas
+);
+
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+const dataBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, dataBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, datas, gl.STATIC_DRAW);
+
+gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
 // Attach the texture to the framebuffer
 gl.framebufferTexture2D(
   gl.FRAMEBUFFER,
   gl.COLOR_ATTACHMENT0,
   gl.TEXTURE_2D,
-  attributeData.texture,
+  dataTexture,
   0
 );
+
+gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 const dataLocation = gl.getAttribLocation(transformProgram, 'a_data');
 
 const drawDataLocation = gl.getAttribLocation(drawProgram, 'a_data');
 
 function tick() {
-  // Bind the read buffer for input
-  gl.bindBuffer(gl.ARRAY_BUFFER, attributeData.buffer);
-  gl.enableVertexAttribArray(dataLocation);
-  gl.vertexAttribPointer(dataLocation, 4, gl.FLOAT, false, 0, 0);
-
   // Use the transform program
   gl.useProgram(transformProgram);
 
+  // gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
   // Set the write buffer as the transform feedback buffer
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tf);
-  gl.bindBufferBase(
-    gl.TRANSFORM_FEEDBACK_BUFFER,
-    0,
-    attributeData.transformBuffer
-  );
+  gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, dataBuffer);
 
   // Perform transform feedback
   gl.enable(gl.RASTERIZER_DISCARD);
@@ -210,18 +163,16 @@ function tick() {
 
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
   gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
-
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 
   // Bind PBO and transfer data to texture
-  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, attributeData.buffer);
+  gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, dataBuffer);
   // Add double buffer texture to prevent stalling on read
-  gl.bindTexture(gl.TEXTURE_2D, attributeData.texture);
+  gl.bindTexture(gl.TEXTURE_2D, dataTexture);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
   gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
 
-  // Ping-pong: swap the read and write buffers
-  attributeData.switchBuffers();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   debug();
 }
 
@@ -257,22 +208,14 @@ function createShader(gl, type, source) {
 }
 
 function debug() {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
   // Set the viewport size to match the texture size
   gl.viewport(0, 0, width * 4, height); // Set textureWidth and textureHeight appropriately
-
-  // Clear the framebuffer
-  gl.clear(gl.COLOR_BUFFER_BIT);
 
   // Prepare to draw with the draw program
   gl.useProgram(drawProgram);
 
   const dataBufferDebug = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, dataBufferDebug);
-
-  gl.enableVertexAttribArray(drawDataLocation);
-  gl.vertexAttribPointer(drawDataLocation, 4, gl.FLOAT, false, 0, 0);
 
   const datasDebug = new Float32Array(size * 4 * 4);
   gl.bufferData(gl.ARRAY_BUFFER, datasDebug, gl.STATIC_DRAW);
